@@ -89,4 +89,4 @@ The source was developed using the Merlin Pro assembler running natively on Appl
 
 ## License
 
-Copyright 1987 Michael Hoffman / Micronics. All rights reserved.
+Copyright (c) 1987 Michael Hoffman / Micronics. Released under the [MIT License](LICENSE).
