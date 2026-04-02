@@ -1,0 +1,1363 @@
+****************************
+* OPENWDW  - open window       *
+* FGNDWDW  - make it forground *
+*                              *
+* Written by: Michael Hoffman  *
+*             870816           *
+*                              *
+* Copyright 1987, Micronics    *
+********************************
+
+
+OPENWDW
+ JSR WDWCHK
+ LDA #WOPEN
+ JMP CWAPPL
+
+
+FGNDWDW
+ JSR WDWCHK
+ JSR MOUSEXY1 ;LOAD MOUSE COORDS INTO R1,R2
+ _MATH16
+ ADQ R6;8;R13 ;CHECK IF CLICK IN TITLEBAR
+ CPL R6;R2;R13 ;IN TITLE BAR?
+ _MEND
+ BCC :1 ;NOT IN TBAR, SKIP MOVE
+ JSR SAVMXY *save mouse coords for MOVEIT
+ JSR DOMOUSE ;check one more time for button in tbar
+ BIT MBUTTON ;still down?
+ BPL :1 ;no, skip anyway
+ JSR MOVEIT ;yes, to track move
+ BCC :1
+ JMP SHWWDWS ;redraw all windows
+:1 RTS
+
+
+WDWCHK
+ LDX WDWCNT
+ BEQ :5 *NO WINDOWS, MUST BE NEW
+ CMP WDWLST,X *ALREADY ACTIVE WINDOW?
+ BEQ :6 *YES, WE'RE DONE
+ PHA  *SAVE WINDOW #
+ JSR LOADCW *PUT ACTIVE WDW IN BACKGND
+ JSR MAXCLIP
+ LDA #$C0
+ STA BGNDFLG
+ JSR WDWDRAW
+ LDA #WBGND
+ JSR CWAPPL
+ PLA  *GET WINDOW # AGAIN
+ LDX WDWCNT *GET CURRENT COUNT
+:5 INX  *INC FOR NEW WINDOW
+ STX WDWCNT *AND SAVE
+ STA WDWLST,X *ADD NEW WINDOW
+:1 DEX  *NOW, SEE IF ALREADY OPEN
+ BEQ :3 *DONE WITH NO MATCH.
+ CMP WDWLST,X *NOT DONE. SAME?
+ BNE :1 *NO, KEEP CHECKING
+:4 LDA WDWLST+1,X *YES, REMOVE OLD ENTRY
+ STA WDWLST,X *BY MOVING ALL DOWN
+ INX  *UNTIL
+ CPX WDWCNT *WE HIT TOP
+ BNE :4 *AGAIN.
+ DEC WDWCNT *ADJUST BACK DOWN AGAIN
+:3 JSR LOADCW
+ JSR MAXCLIP
+es
+ ORA EVENTFLG
+ STA EVENTFLG
+ JMP CHKCTRLS
+
+NOTCR LDB CWTYPE;R15
+ CALL LDCWXY
+ CPL R5;R1;R7 ;mouse x within window
+ JCC LOOP3 ;no, mouse not in this window
+ CPL R6;R2;R8 ;yes, mouse y within window?
+ JCC LOOP3 ;no, not in window.
+ ADQ R6;1;R12 ;IT's in THIS window!
+ ADQ R6;7;R14 ;in title bar?
+ CPL R12;R2;R14
+ JCC TEST2 ;no, skip all title bar stuff
+ TST R15;WDWCBOX
+ JEQ TEST1A ;no, skip close box.
+ ADQ R5;1;R11
+ ADQ R5;8;R13
+ CPL R11;R1;R13 ;mouse x in close box?
+ JCC TEST1A ;no, check for wdw move.
+
+ _MEND
+ LDA #WCLOS ;yes, handle close box
+ JSR TESTIT ;TRACK CLOSE BOX
+ BMI MTWRET ;IF ABORTED, SKIP CLOSE
+ JMP CWAPPL
+
+
+TEST1A TST R15;WDWMOVE ;move allowed?
+ JEQ MTWRETM ;no, we're done.
+ _MEND
+ JSR SAVMXY
+ JSR MOVEIT ;yes, goto move handler, CHG 870904 V102
+ BCC MTWRET
+ JMP SHWWDWS ;ADD 870904 V102
+
+MTWRETM _MEND
+MTWRET RTS  ;back to application.
+
+
+LOOP3
+ _MEND  ;from math package!
+ JMP TBARCHK ;check if in another window!
+
+TEST2
+ SBQ R7;10;R11 ;get bounds of size box
+ SBQ R7;2;R13 ;into r11 - r14
+ CPL R11;R1;R13 ;mouse x in size area?
+ JCC TEST3 ;no, skip size box
+ SBQ R8;2;R14
+ SBQ R8;8;R12
+ CPL R12;R2;R14 ;mouse y in size area?
+ JCC TEST2A ;no, skip size bix
+ TST R15;WDWSIZE
+ JEQ TEST2A ;no, so we're done.
+ _MEND
+ JSR SIZEIT ;handle size box.
+ BCC MTWRET
+ LDA #WSIZE
+ JSR CWAPPL
+ JMP SHWWDWS
+
+
+TEST2A TST R15;WDWYSCR ;y scrolling allowed?
+ JEQ TEST3C ;no, so we're done.
+ CALL LOADCREGN
+ CALL SCRLADJ
+ MOV R7;R5
+ ADQ R6;1;R12
+ ADQ R6;7;R14
+ CPL R12;R2;R14
+ JCC TEST2B
+ _MEND
+ LDA #WUSCR
+ JMP TESTIT
+
+TEST2B ;comes here if y in x scr area.
+ SBQ R8;1;R14
+ SBQ R8;7;R12
+ CPL R12;R2;R14
+ JCC TEST2C
+ _MEND
+ LDA #WDSCR
+ JMP TESTIT
+
+TEST2C
+ ADQ R6;9;R9
+ SBQ R8;9;R10
+ CPL R9;R2;R10
+ JCC MTWRTM
+ _MEND
+ JMP YBOX
+
+TEST3C _MATH16
+TEST3 SBQ R8;2;R14
+ SBQ R8;8;R12
+ CPL R12;R2;R14
+ JCC MTWRTM
+ TST R15;WDWXSCR
+ JEQ MTWRTM
+ CALL LOADCREGN
+ CALL SCRLADJ
+ MOV R8;R6
+ ADQ R5;1;R11
+ ADQ R5;7;R13
+ CPL R11;R1;R13
+ JCC TEST3A
+ _MEND
+ LDA #WLSCR
+ JMP TESTIT
+
+TEST3A
+ SBQ R7;1;R13
+ SBQ R7;7;R11
+ CPL R11;R1;R13
+ JCC TEST3B
+ _MEND
+ LDA #WRSCR
+ JMP TESTIT
+
+TEST3B
+ ADQ R5;9;R9
+ SBQ R7;9;R10
+ CPL R9;R1;R10
+ JCC MTWRTM
+ _MEND
+ JMP XBOX
+
+MTWRTM _MEND
+ RTS
+
+
+
+
+DRWYTHMB
+ _MATH16
+ LDW BOXDISPY;R14 ;save current thumb displacement
+ _MEND
+ JSR GETBOXY ;calculate new box displacement
+DRWY1 _MATH16
+ CPW R14;R11 ;same as before?
+ _MEND
+ BEQ DRWX2 ;yes, skip redraw
+ LDA #$80 ;no, set mode to undraw old one
+ JSR SHWYBOX2
+ JMP SHWYBOX1 ;and then redraw new one
+
+
+DRWXTHMB
+ _MATH16
+ LDW BOXDISPX;R14
+ _MEND
+ JSR GETBOXX
+DRWX1 _MATH16
+ CPW R14;R11 ;same as last time?
+ _MEND
+ BEQ DRWX2
+ LDA #$80 ;command to erase box
+ JSR SHWXBOX2
+ JMP SHWXBOX1 ;draw new one.
+DRWX2 RTS
+
+
+
+CHKXTHMB
+ LDA #WLPAG ;assume right
+
+ _MATH16
+ LDW LSTX;R1  ;get last mouse value
+ LDW BOXDISPX;R14
+ ADW R14;R5;R10;9 ;get abs screen left of thumb
+ ADQ R10;12;R11 ;and right of thumb
+ CPL R10;R1;R11 ;in thumb?
+ JCS :2 ;yes, return with carry set to track thumb
+ LDB LSTY;R9 ;check y
+ ADQ R8;7;R13
+ ADQ R8;1;R11
+ CPL R11;R9;R13 ;mouse still in y range?
+ JCC :2 ;no, indicate no paging temporarily
+ CPW R10;R1 ;mouse less than left edge?
+ _MEND
+ BCS :1 ;yes, guessed correctly.
+ LDA #WRPAG ;no, must be page right.
+:1 CLC  ;indicate paging necessary
+ RTS
+
+:2 _MEND  ;carry set means call appl
+ SEC
+ RTS
+
+
+CHKYTHMB
+ LDA #WUPAG ;assume paging up
+
+ _MATH16
+ LDB LSTY;R1  ;get last mouse value
+ LDW BOXDISPY;R14
+ ADW R14;R6;R10;9 ;get abs screen top of thumb
+ ADQ R10;10;R11 ;and bottom of thumb
+ CPL R10;R1;R11 ;in thumb?
+ JCS :2 ;yes, return with carry set to track thumb
+ LDW LSTX;R9 ;check y
+ ADQ R7;9;R13
+ ADQ R7;1;R11
+ CPL R11;R9;R13 ;mouse still in y range?
+ JCC :2 ;no, indicate no paging temporarily
+ CPW R10;R1 ;mouse less than top edge?
+ _MEND
+ BCS :1 ;yes, guessed correctly.
+ LDA #WDPAG ;no, must be page down.
+:1 CLC  ;indicate paging necessary
+ RTS
+
+:2 _MEND  ;carry set means no paging this time
+ SEC
+RET1A RTS
+
+
+
+XPAGING
+:1 JSR TRCKAPPL ;call appl with WLPAG or WRPAG
+ JSR DRWXTHMB ;draw new thumb if necessary
+:2 JSR DOMOUSE ;get new mouse values.
+ BIT MBUTTON ;released yet?
+ BPL RET1A ;yes, we're done.
+ JSR CHKXTHMB ;check where mouse is
+ BCC :1 ;not in thumb, so call appl again
+ BCS :2 ;in thumb, so wait for move or button up
+
+
+
+XBOX
+ JSR CHKXTHMB ;check if paging or thumb tracking
+ BCC XPAGING ;do paging.
+
+:1 JSR DOMOUSE ;get new mouse info
+ BIT MBUTTON ;button still down?
+ BPL :9 ;no, finish up.
+ _MATH16  ;yes, load regs
+ LDW LSTX;R11
+ LDW BOXDISPX;R14
+ SBQ R11;6;R11 ;arrow is fixed at 6 into thumb.
+ ADQ R5;9;R10 ;go past left arrow for check.
+ CPW R11;R10 ;is thumb pegged to the left?
+ JCS :2 ;no, we're ok
+ MOV R10;R11 ;yes, set to min x allowed.
+ JA :3 ;skip right edge check
+:2 SBW R7;0;R9;21 ;get past right edge and thumb
+ CPW R9;R11 ;is thumb pegged to the right?
+ JPL :3 ;no, we're ok.
+ MOV R9;R11 ;yes, set to max x allowed.
+:3 SBW R11;R5;R11;9 ;subtract out abs screen again
+ STW R11;BOXDISPX ;save new box displacement
+ _MEND
+ JSR DRWX1 ;and redraw new one if necessary.
+ JMP :1 ;go do it again.
+
+:9 JSR GETXDISP ;figure out approx displacement
+ JSR STORCW ;and save window record
+ LDA #WXTHUMB ;ADD 870830 V101
+ JMP CWAPPL
+
+
+
+YPAGING
+:1 JSR TRCKAPPL ;call appl with WLPAG or WRPAG
+ JSR DRWYTHMB ;draw new thumb if necessary
+:2 JSR DOMOUSE ;get new mouse values.
+ BIT MBUTTON ;released yet?
+ BPL :9 ;yes, we're done.
+ JSR CHKYTHMB ;check where mouse is
+ BCC :1 ;not in thumb, so call appl again
+ BCS :2 ;in thumb, so wait for move or button up
+:9 RTS
+
+
+
+YBOX
+ JSR CHKYTHMB ;check if paging or thumb tracking
+ BCC YPAGING ;do paging.
+
+:1 JSR DOMOUSE
+ BIT MBUTTON
+ BPL :9
+ _MATH16
+ LDB LSTY;R10
+ LDW BOXDISPY;R14
+ SBQ R10;5;R11
+ ADQ R6;9;R10
+ CPW R11;R10
+ JCS :2
+ MOV R10;R11
+ JA :3
+:2 SBW R8;0;R9;19
+ CPW R9;R11
+ JPL :3
+ MOV R9;R11
+:3 SBW R11;R6;R11;9 ;subtract back out abs screen pos.
+ STW R11;BOXDISPY
+ _MEND
+ JSR DRWY1 ;draw new y thumb if necessary
+ JMP :1
+
+:9 JSR GETYDISP ;get approx displacement
+ JSR STORCW ;and save window record
+ LDA #WYTHUMB ;ADD 870830
+ JMP CWAPPL
+
+
+
+;CHG 870830 V101, REWRITTEN
+
+TESTIT
+ STA STATE
+ JSR SAVREGA
+ JMP :4A ;START BY HIGHLIGHTING
+
+:2 JSR DOMOUSE ;get new mouse coords
+ JSR LDREG ;load regs
+ BIT MBUTTON
+ BPL :8 ;if button released, do exit code
+ _MATH16
+ CPL R11;R1;R13 ;x in rect?
+ JCC :7 ;no, unhighlight
+ CPL R12;R2;R14 ;y in rect?
+ JCC :7 ;no, unhighlight
+ _MEND
+ BIT SELFLG ;yes, check if already hilited
+ BPL :4 ;yes, skip EOR
+:4A _MATH16
+ MVM R11;R14;R1 ;copy rect into r1-r4
+ _MEND
+ JSR EORBOX ;EOR box
+ LDA #0 ;mark as hilited
+ STA SELFLG
+:4 LDA STATE
+ CMP #7 ;tracking scroll arrows?
+ BCS :2 ;if not scrolling, go to top
+ JSR TRCKAPPL ;call application
+ LDA #3 ;check if x or y scrolling
+ CMP STATE ;x scrolling?
+ BCC :1 ;no, do y scrolling
+ JSR DRWXTHMB ;draw x thumb
+ JMP :2 ;do again
+
+:1 JSR DRWYTHMB
+ JMP :2
+
+:7 _MEND
+ JSR :3 ;UNHIGHLIGHT
+ JMP :2 ;DO IT ALL AGAIN
+
+:8 BIT SELFLG ;SET M FLAG
+ PHP ;SAVE M FLAG
+ JSR :3 ;UNHIGHLITE IF NECESSARY
+ LDA STATE ;GET STATE INTO ACC
+ PLP ;GET M FLAG
+ RTS
+
+:3 BIT SELFLG
+ BMI :6
+ _MATH16
+ MVM R11;R14;R1
+ _MEND
+ JSR EORBOX
+ LDA #$80
+ STA SELFLG
+:6 RTS  ;RETURN
+
+
+
+TRCKAPPL
+ JSR CWAPPL ;call application
+ JSR STORCW ;save cw values to wdw record
+ JSR MAXCLIP ;reload clip
+ JSR GETCREGN ;and region ADD 870830 V101
+ JMP SCRLADJ
+
+
+
+*-------------------------------
+TBARCHK
+ LDA EVENTMSK  ;check if allowed?
+ AND #ESLCTWDW ;check of select bgnd wdw
+ BEQ :3
+ LDA WDWCNT
+ STA SAVCNT
+ BEQ :3
+ BNE :2 ;always
+]LOOP LDX SAVCNT
+ JSR LOADWDW ;ADD 870912 V104  load bgnd wdw info
+   ;CUT 870912 V104  removed manual load
+ JSR LDCWXY
+ _MATH16
+ CPL R5;R1;R7
+ JCC :1
+ CPL R6;R2;R8
+ JCC :1
+ _MEND ;ADD 870907 V103
+
+ LDX SAVCNT
+ JSR LOADWDW
+
+ LDX SAVCNT
+ LDA WDWLST,X
+ TAX  ;load window # into x for appl.
+ LDA #WFGND ;move to foreground.
+ JMP CWAPPL
+
+:1 _MEND
+:2 DEC SAVCNT
+ BNE ]LOOP
+ JMP LOADCW ;restore current wdw info
+:3 RTS
+
+
+SHWDWCLS CLC  ;entry point from close
+ SKIP1  ;skip sec
+SHWWDWS
+ SEC
+SHWW1 PHP
+ LDA #$80
+ STA BGNDFLG
+
+ LDX #0
+ STX SAVCNT
+ BEQ :1C ;always
+
+:1 JSR LOADWDW ;get bgnd window info
+ JSR OLDCLIP
+ BCC :1C
+
+ JSR WDWDRAW ;draw partial background window
+ LDA #WDRAW
+ JSR CLIPDRAW
+:1C INC SAVCNT
+ LDX SAVCNT
+ CPX WDWCNT
+ BCC :1
+
+ JSR LOADCW
+ JSR MAXCLIP ;draw window frame
+ LDA #0
+ STA BGNDFLG
+ JSR WDWDRAW
+
+ PLP  ;get carry flag
+ BCS :5 ;close?, if not, skip and redraw all
+ JSR OLDCLIP ;yes, only update the hole
+:5 LDA #WDRAW
+ JMP CLIPDRAW ;draw contents
+
+
+
+OLDCLIP JSR MAXCLIP ;set clip region to screen bounds
+ LDX #7 ;move old window frame region
+:1A LDA SAVREGN,X ;into R1-R4
+ STA R1,X
+ DEX
+ BPL :1A
+ JSR SCRNCLIP ;clip R1-R4 into screen bounds
+ LDX #7
+:1B LDA R1,X ;save as new clip region
+ STA CLIPX0,X
+ DEX
+ BPL :1B
+ RTS  ;carry set = need to draw
+
+
+
+SAVREGA LDX #11
+:1 LDA R9,X
+ STA SAVREGS,X
+ DEX
+ BPL :1
+ RTS
+
+LDREG
+ LDX #11
+:1 LDA SAVREGS,X
+ STA R9,X
+ DEX
+ BPL :1
+ RTS
+
+
+
+
+
+********************************
+LOADCREGN
+ LDX #7
+LDCREGN1 LDA CREGNX0,X
+ STA R5,X
+ DEX
+ BPL LDCREGN1
+ RTS
+
+
+
+********************************
+* GETCWPTR - LOAD POINTER TO CURRENT WINDOW
+
+GETCWPTR
+ JSR GETCW
+GETCWP1 ASL A
+ TAY
+ LDA (VWDWLST),Y
+ STA CWPTR
+ TAX
+ INY
+ LDA (VWDWLST),Y
+ STA CWPTR+1
+ RTS
+
+
+********************************
+* GETCW - GET # OF CURRENT WINDOW
+
+GETCW
+ LDX WDWCNT
+ LDA WDWLST,X
+ RTS
+
+
+
+
+********************************
+LOADCW
+ LDX WDWCNT
+LOADWDW LDA WDWLST,X
+USRLDWDW JSR GETCWP1
+ LDY #WRECSIZE-1 ;CHG 870830 V101  USE LABEL FOR SIZE
+LOADCW1 LDA (CWPTR),Y
+ STA CWTBL,Y
+ DEY
+ BPL LOADCW1
+ LDA CWSUBR
+ STA CWAPPL1+1
+ LDA CWSUBR+1
+ STA CWAPPL1+2
+ JSR GETCREGN
+ LDX #7
+LOADCW2 LDA R5,X
+ STA CREGNX0,X
+ DEX
+ BPL LOADCW2
+ RTS
+
+
+
+STORCW
+ JSR GETCW
+USRSTWDW JSR GETCWP1 ;make sure cwptr is setup ADD 870912
+ LDY #WRECSIZE-1 ;CHG 870830 V101, USE LABEL FOR SIZE
+STORCW1 LDA CWTBL,Y
+ STA (CWPTR),Y
+ DEY
+ BPL STORCW1
+ RTS
+
+
+SAVEREGN
+ LDY #7
+STORCW2 LDA CWXPOSL,Y
+ STA SAVREGN,Y
+ DEY
+ BPL STORCW2
+ RTS
+
+
+
+***********************************
+
+* THIS ROUTINE LOAD THE REGS FOR
+* THE CURRENT WINDOW.
+
+LDCWXY
+ LDX #7
+LDCWXY1 LDA CWXPOSL,X
+ STA R5,X
+ DEX
+ BPL LDCWXY1
+ RTS
+
+
+
+
+********************************
+* GETCREGN - Derives content   *
+* region perimeter coords from *
+* window perimeter coords      *
+*                              *
+* regs:  R5 - R8               *
+*                              *
+********************************
+
+GETCREGN
+ JSR LDCWXY
+ _MATH16
+ LDB CWTYPE;R15
+ TST R15;WDWDLOG ;dialog box?
+ JEQ :1 ;no, skip
+ ADQ R5;4;R5 ;adj to total of 4 inward
+ ADQ R6;4;R6
+ SBQ R7;4;R7
+ SBQ R8;4;R8
+ _MEND
+ RTS
+
+:1 ADQ R5;1;R5
+ ADQ R6;1;R6
+ SBQ R7;2;R7 ;ADJ FOR 3-D BRDR
+ SBQ R8;2;R8 ;
+ TST R15;WDWYSCR
+ JEQ :2
+ SBQ R7;10;R7 ;ADJUST FOR SIZE & YSCROLL AREA
+:2 TST R15;WDWXSCR
+ JEQ :3
+ SBQ R8;8;R8 ;ADJUST FOR SIZE & YSCROLL AREA
+:3 TST R15;WDWTBAR
+ JEQ :4
+ ADQ R6;8;R6 ;ADJUST FOR TITLE BAR
+:4 _MEND
+ RTS
+
+
+
+SCRLADJ
+ _MATH16
+ LDB CWTYPE;R15
+ SBQ R5;1;R5
+ SBQ R6;1;R6
+ ADQ R7;1;R7
+ ADQ R8;1;R8
+ TST R15;WDWSIZE ;SIZE BOX?
+ JEQ :2
+ TST R15;WDWXSCR+WDWYSCR
+ JEQ :2  ;if no x or y, we're done
+ TST R15;WDWYSCR ;y scroll?
+ JNE :1  ;yes, so skip x only fix
+ SBQ R7;10;R7 ;BYPASS SIZE BOX
+:2 _MEND
+ RTS
+;
+:1 TST R15;WDWXSCR ;x scroll?
+ JNE :2 ;yes, so skip y only fix
+ SBQ R8;8;R8 ;BYPASS SIZE BOX
+ _MEND
+ RTS
+
+
+
+
+
+BOXYMATH
+ _MATH16
+ LDW CWYDISP;R9
+ LDW CWYMAX;R10
+ LDW BOXDISPY;R11
+ SBW R8;R6;R13;28 ;ADD 870830 V101
+ _MEND
+ RTS
+
+
+
+BOXXMATH
+ _MATH16
+ LDW CWXDISP;R9
+ LDW CWXMAX;R10
+ LDW BOXDISPX;R11
+ SBW R7;R5;R13;30
+ _MEND
+ RTS
+
+
+
+********************************
+* This calculates the fraction *
+* of the hidden part of the    *
+* data area that the current   *
+* displacement is at:          *
+*  hidden / displacement       *
+*                              *
+* then multiplies by the       *
+* amt of scroll bar space we   *
+* we have:                     *
+*  hidden/disp * scroll width  *
+*                              *
+* to get the disp into the     *
+* scroll bar we should draw    *
+* the scroll box at            *
+*                              *
+* we mult before div to min.   *
+* roundoff error.              *
+********************************
+
+BOXMATH
+ _MATH16
+ MUL R9;R13;R11    ;R11:R12 = disp * scrollfld
+ DIV R11;R10 ;R11 = (disp/hidden)*scrollfld
+ _MEND
+ RTS
+
+
+
+GETBOXX
+ JSR BOXXMATH ;load box parameters
+ JSR BOXMATH ;calc scroll box offset
+ _MATH16
+ STW R11;BOXDISPX ;save offset
+ _MEND
+ RTS
+
+
+
+GETBOXY
+ JSR BOXYMATH
+ JSR BOXMATH
+ _MATH16
+ STW R11;BOXDISPY
+ _MEND
+ RTS
+
+
+
+GETXDISP
+ JSR BOXXMATH
+ JSR DISPMATH
+ _MATH16
+ STW R9;CWXDISP
+ _MEND
+ RTS
+
+
+
+GETYDISP
+ JSR BOXYMATH
+ JSR DISPMATH
+ _MATH16
+ STW R9;CWYDISP
+ _MEND
+ RTS
+
+
+
+DISPMATH
+
+* MAXDISP = BUFMAX-WDWWIDTH
+* R9:R10 = MAXDISP*BOXDISP
+* DISP=MAXDISP*BOXDISP/MAXBOXDISP
+
+ _MATH16
+ MUL R10;R11;R9
+ DIV R9;R13
+ _MEND
+ RTS
+
+
+
+VLINE
+ _MATH16
+ MOV R1;R3
+ _MEND
+ JMP DRAWRECT
+
+
+
+HLINE
+ _MATH16
+ MOV R2;R4
+ _MEND
+ jmp DRAWRECT
+
+OUTLINE3D
+ _MATH16
+ MVM R1;R4;R9
+ ADQ R2;2;R2
+ MOV R3;R1
+ CALL DRAWRECT
+ ADQ R9;2;R1
+ MOV R12;R2
+ CALL HLINE
+ SBQ R11;1;R11
+ SBQ R12;1;R12
+ MVM R9;R12;R1
+ _MEND
+
+OUTLINE
+ _MATH16
+ MVM R1;R4;R9
+ CALL VLINE
+ MOV R11;R3
+ CALL HLINE
+ MOV R12;R2
+ CALL HLINE
+ MOV R12;R4
+ MOV R10;R2
+ MOV R11;R1
+ CALL VLINE
+ MVM R9;R12;R1
+ _MEND
+RET3 RTS
+
+
+
+BRDRBOX
+ JSR SETBLACK
+ JSR OUTLINE
+ JSR SHRINK
+ JSR WHIBOX
+ JMP SETBLACK
+
+
+
+TEXTWDTH
+ STA TXTPTR
+ STY TXTPTR+1
+ LDA ACHRPTR
+ LDY ACHRPTR+1
+ JSR LOADCHAR
+ JMP TXTLN1
+
+
+TXTLEN
+ STA TXTPTR
+ STY TXTPTR+1
+ JSR LOADSYSF
+TXTLN1
+ LDA #0
+ STA SAVEY
+ STA TMPH
+ STA TMP
+:1 LDY SAVEY
+ LDA (TXTPTR),Y
+ BEQ :3
+ STA CHAR
+ JSR GETASC
+ LDA WCHRWDTH
+ CLC
+ ADC TMP
+ STA TMP
+ BCC :2
+ INC TMPH
+:2 INC SAVEY
+ LDY CHAR
+ BPL :1
+:3 LDA TMP
+ LDY TMPH ;return with length in Y:A
+ RTS
+
+
+MOUSE LDX $C000,Y ;addr lookup, $C0 chg'd in init routine
+ STX MJIND+1
+ LDX MOUSECN
+ LDY MOUSEN0
+MJIND JMP $C0FF ;this is changed before used
+
+
+DRAWDESK
+ JSR HIDECURS
+ JSR LOADSYSF
+;check for std or dbl hi-res
+ LDX #<279 ;start offset of max x,y
+ LDY #>279
+
+ LDA $C029
+ AND #$1F ;preserve lower bits
+ ORA #$20 ;turn on bit 5 and off bits 6,7
+ STA $C029 ;for //gs MONO dbl hi-res
+
+ LDA $C021 ;mono output of //gs composite
+ ORA #$80 ;connector.
+ STA $C021
+
+ STA $C00C ;40 Column
+ STA $C050 ;graphics
+ STA $C052 ;mixed mode off
+ STA $C054 ;page 1
+ STA $C057 ;hi-res
+ STA $C05E ;turn on mono mode (//gs)
+
+ BIT HGMODE ;dbl hi-res?
+ BPL :0 ;no, skip addt'l soft switches
+
+ LDX #<559 ;start offset of max x,y if dbl res
+ LDY #>559
+ LST ON
+ STA $C00D ;80 col
+ STA $C001 ;access via display page switches
+ STA $C057 ;access hi-res pages
+ STA $C05E ;turn on dbl hi-res, (and mono, //gs)
+
+
+:0 STX SCRNMAXX ;setup std or dbl hi-res max x
+ LST OFF
+
+ STY SCRNMAXX+1
+
+ JSR MAXCLIP ;set up correct max clip region
+ JSR GRYBCK
+ JSR SETMENUS
+ LDA WDWCNT
+ BEQ :2
+
+ LDX #7 ;make sure shwwdws doesn't clip the
+:1 LDA CLIPX0,X ;windows when it draws them
+ STA SAVREGN,X
+ DEX
+ BPL :1
+
+ JSR SHWWDWS
+
+:2 JSR GETMINFO
+ JSR MOUSEXY
+ JMP SHOWCURS
+
+
+GRYBCK
+ JSR SETDESK
+ _MATH16
+ LDI 0;R1
+ MOV R1;R2
+ LDW SCRNMAXX;R3
+ LDW SCRNMAXY;R4
+ _MEND
+ JMP DRAWRECT
+
+
+ PUT 2/DOMOUSE
+ PUT 2/CURSOR
+ PUT 2/SIZEIT
+ PUT 2/CHKCTRLS
+ PUT 2/CLOSEWDW
+ PUT 2/OPENWDW
+ PUT 2/WDWDRAW
+ PUT 2/MTWMENUS
+ PUT 2/MSTROUT
+ PUT 2/SCRNCLIP
+ PUT 2/DRAWRECT
+ PUT 2/MOVERECT
+ PUT 2/MATHHDLR
+ PUT 2/MTWINIT
+
+MTWEND
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 L< Q 	S	^/  Hl
+ @n
+@-
+A,@"5  Jx
+H
+	@h) H
+@hp3"-= Jx   0$
+	@"=  Jx)@
+ )
+
+ v3h-3{IpL
+@
+ 
+@,	@(")x1HPyfPu
+@hpi
+	@ 9zO%w 9W(Pw M95Pw)%
+&B)6
+o*)6
+p* (9[26Pw)
+\,H9`p m}HPu,@H9`p m}HPu,@
+@ ) Hphhp~,@ 9Pw 9	`w)S
+`)
+
+`"=	`yJPwh=~AwJpwx)4
+~)w
+X B,`P)L
+7-CIP
+`-@{P,`@
+	`) ,)
+m)`
+n, @
+	@lmLS }%D+)IP%-CIP-`)(PH) m}	0 m})
+
+0@)l
+1@%!~%#`jjjj5 
+@ 
+	@Js`
+BLOADASM.1
+ 
+BLOADASM.2
+ 
+NOT //C OR 128K //E )n
+@
+@
+ 
+ - InP 
+M PM P80
+@
+@`-;ILP 9U;w`0M`ASSEI
+P" 51 (,pH "1  hBfPc 51)
+PlLo3`                                                                                                                            PP',@  < Q $"0l@ #$HIP
+F%$QhL)PI
+Ph yPF%Ps-PP%AE!p)F*"P8e%* IP -PJPw-P8i% yPx
+e&&
+e''XF(&* IPJPz UP [P-ph UP(9p -PHPu" UPI F)P
+,P0)
+ PhIP IP$$&#l  ===== Page   -   =====
+  )  -P)
+` -Ph=0PPw`%' bP%&HJJJJ mPh)P$(g	0(P4-P            
+	 
+	 
+                                                                                                                                                                      
+ z   z           )       `    SM.2                               
+ z   z           )       `    SM.2                               
+ z   z           )       `    SM.2                               
+ z                                                                                        z       
+
+	 
+                                                                                                                                                                                                      
+
+  Fz   z            
+~   `   T.OPENWDW                     SSS                                                                                            S=u**`* ;5j".Q`pN%$#P$o$b"p"t"i"%E%%\%""" "m%2"<"("-"P"y%%0#\#
+#|"|$|$eX `<TrT6he$cc ``|$|$eX `<TrT
+<5 (& j"L}"-i7JJJJ
+j*-j7
+h*- `I P
+6*"
+=aUJPwL<)@
+6*"=kUJPw80-6*P) P
+)L 2% Q() 
+^*
+R*(j
+Q*0l^l\8-C5mf5
+C50ND5)B"D`  
+L['-1*
+W* T'-3*p	H &h  @ ['-_*P "/=QPJw-S
+sI%
+t-R
+r)4P-b*p
+_*L !`L?LL}*L57-,`-B*,A*`LQ(jjLYzLeLXLeLee Q-Q*pH-\*(h0L&&  $$)`(-3*p &)
+R* : :
+\*Z*L3l8  Q-R*
+*=H=H-\*`
+\ Z*[*:hhY*"=S*6Jx`.7*pL&&& ?puE3p'S=u**`* ;5j".Q`pN%$#P$o$b"p"t"i"%E%%\%""" "m%2"<"("-"P"y%%0#\#
+#|"|$|$1e `R%rT6he$cc ``|$|$eX `<TrT%	S	<r-i7JJJJ
+j*-j7
+h*- `I P
+6*"
+=aUJPwL<)@
+6*"=kUJPw80-6*P) P
+)- 2% Q() 
+^*
+R*(j
+Q*0l^l\
+
+6*"=wUJPw"=*u*Jw-1*
+W* T'-3*p	H &h  @ ['-_*P "%=QPJw-S
+sI%
+t-R
+r) P-b*p
+_*L !`L?LL}*L57-,`-B*,A*`LQ(jjLYzLeLXLeLee Q-Q*pH-\*(h0L&& j$$)`(-3*p &)
+R* : :
+\*Z*L3l8  Q-R*
+*=H=H-\*`
+\*Z*[*:hhY*"=S*6Jx`.7*pLx.Q*pI?puE3p'"R*M2*PJR*J]*.]* h]*I
+PuLMI
+P}" R*L$" R*I
+p-3*pgP^H8-3*P ^&hl.Z*LI
+P)
+R* &LM2*pI
+pq"R*Pa) 
+R*p%) 
+7* Q(L\$- M2*p
+)
+
+ " Z*)@P)P) -^*p : E
+\*[*Z* Q(.Y*-\*,[*.Z*8`l6 )
+LE _*Hb*n_*" = M2*Ph]* $!)Y(H
+php(p 9(PV- M2*pL$-I
+P ['LLD&_*,_* ^&)9	)p)LR&@P3) 9	)pa   $!p
+0L  jLY  !p
+u*H@<s !P{(P,_*)9	)p PK-*I p-u*I PK,_*)@9	)p?L   <) t*Pz`
+u*)9	)p' 9!0(P`0,_*)9	)p`0N
+P)LR&LD&) 
+e*
+t*
+f*
+l*
+m* \?-]* $!PI
+Pw._*-e*
+)]
+)P.c*pv
+c*]*P\"
+]@)pJPxp6=J)0G
+e*
+e*Jd* 9!0"-d*
+
+(%EP	%DYU)%EYX)P%DYW)Pu-c*PJ(%Eg*%Df*Lh H) 
+e*
+e*h)
+t*
+t*Pip  !L [' .!-_**=H=H`.]*= I
+ph]*I,` !pzI pw`)  :5Pz`) DE $!I$p<(LN! $!P&D%E`8i00!I
+0 ~!eD*) eE( ~! ~!
+eDDeEEO8`D&E`( $!pE8i00nI
+i0fI0b" ~!JPzDDL"%DL~%DL~-^*
+t*
+^*`,t*P H)pMt*-^*
+^*`) 
+3*%DH #h
+W*LT') *" d'  @`)P) *"Lj")Pv-
+=5-	
+>5)	
+c* H"Lj" #" &P{Lq6) LU#)
+c*-l*P
+-m*P)
+l*-l*
+=5-m*
+>5 j"%EPLH&A%D@ C' N' '-c*
+;5L(&-u*I p% d'0: |"Lj" /'P) 
+3*  @ N')
+;5L(& 'P 'p /'pv *'pq |"L#`)	-e*I	pL  ) U#-s*,r* `#-m*,l* `#-s*,r*L# (")-B5IpLP&)jjj z$*-e*)Pr*s* z$.r*,s*Lq$ ]# Q(lr*-6*p %VLL&) U#8%/eg(%0eh `#%h$gL#) U#8%LeJ(%MeK `#%K$JL#
+B5H ("hLD'A5C5
+B5)
+;5)
+<5 (&-B5
+C5L(&C5
+D5)L6 (&Lj"LP& # (")#-B5pp
+B5-6*p() 1$ z$eg*ehEt0p0j/i&g$h q$ Q(l`) 1$ z$8%Lm`**%Mma*E(DK@p>KJC5D5L/>-
+
+C5-
+D5) 
+B5)
+A5)
+;5)
+<5 (&-a*
+B5(-`*
+A5` j"LL&MB5p._*b*JpL%"=u**JwLz%`-6*p
+7* $ H Q(lX%JL%KMlV $ H Q(lV eV3XLRW e3XLT &%)
+R*L &%)
+Q*L d' #"L4% N'-e*)p"=n*=5Jw)
+
+;5 (&`) ,)
+m)`
+n, @
+	@lm5)L*"L#) *"-?5
+f*`)L 2%p.) 
+6*   "	=7*t*JPw)@
+Q*LQ$)  2%p)LR&) 
+7*LM `p
+ @M `p
+@M `` #"-O*
+4*-P*
+5*-u*
+3*P d' #"Lk% N'-e*)p-n*P.o*pNo*Nn* &p8I
+Pwpe` ^&0f-\*
+C5)
+;5)
+<5L(& ^&0N)
+R* &P |")MR*pN)LR&I`)
+\*.Z*p	J= 	  L3H-6*p&vhp
+&3`]ph`%Y0yh8` |" ['L3 & N')P!)
+;5)
+<5 (&-C5`-5*A-4*@` +-E5IpL^6L6jjjj" C5`)P
+)P)P)
+
+\* f?-6*p%X0"  '.\* ' H Q( ^&.\*)0lZl^=?**c*=q)H	  E.c*hhm`-f*
+?5-h*
+@5-j*
+A5-
+C5-
+D5%@
+O*%A
+P*` 9u*@x` 1@)5H@&Pv`  Q*R*`) E 'Ls' 'p *'P
+%@D%AEPl 1@Yu*Pcv`8`- .P
+ %1@p	*1@A@
+`  1@`-3*p-4*E@P-5*EApJ`MB5p
+)p j"LP&`8- @-A-W*
+c*  @ 8%@i-@H%Ai H@*JhHH@
+H@*JhHH@H
+@Nc*p*h8i&H@H
+i H@Ah@Le'H) H@H@-6*phtphso`hMKhLJ`%9Mp
+V*%8
+U*-8-9%7Mp
+T*%6
+S*-6-7`ASSELOADSAVERUNCHAINDELETELOCKUNLOCKCLOSEREADEXECWRITEPOSOPENAPDRENAMECATALOGMONNOMONPR#IN#MAXFPINTBSAVEBLOADBRUNVER++++++++++++++++ !p p!p p p p p p` " t""#x"p0p@p@ @    @p@ !y q q pVDSLRBACIO@ @   ~            
+
+Language not availableRange ErrorWrite protectedEnd of DataFile not foundVolume mismatchI/O ErrorDisk fullFile lockedSyntax ErrorNo Buffers availableFile Type mismatchProgram too largeNot direct Command
+ $3>L[dmx*;   CC}j
+ **           	 T.OPENWDW                                                     @ APPLESOFTh7;3;4 @~3!+,W,o,*--n,u,9,-
+.-~3~3	,,,,66~3=,I,:,F,~3` p"_*:3 j.-;5I
+0
+*=J*H=I*H`Lc3 (+L3 \+)
+c5.>5-=5P` Ph
+h5i5 I1^3._*=	).3J0
+-Q*I@PL_3Ls3) h4)g43 D2.3G4
+R5
+T5-q5F4
+Q5
+S5-B5H4 70 / V7 :/.3)
+E5=F4
+Q5=G4
+R5=H4
+B5
+v5=g4
+n5=h4
+o5Y5)
+`5
+a5-b3
+Z5L^/) *Q5h`-Px-?5I
+y5-@5
+x5-A5
+
+
+
+*w5)
+z5` / 4/ C2)-U5p! w/)  08NX5Pw.Y5-n5g4-o5h4 70L3 (+-v50+-=5B->5C.3 2 70L3-<5I0
+*=f*H=e*H`Lg3L{3-v50x-<5I0n
+*=r*H=q*H`  3 (,
+C5L3  3 51 (,H "1  hBL, 6001BH [1 1h`Lo3  3-C5 Z,L3  3 "1  1B Z, 51LJ,H 60hB)@
+U5
+U5 [1L1) 
+3P) 
+3 (+.3=H4)
+3H4 70L3  3L3 (+ 600ond5Pvne5L- (+.3=H4L{3.3=F4
+Q5f4)F4<G4R5 70 ^/0* / 31B0p	HH1B(h 	-,3HHPg-S5,T5 	-80Q {/L38 ]2) "p5Jz` \+)
+y5 w/)
+3 /. /."=+3 m}JwE-v7D B. /. /. 00]" 3=F4pS0J  =H4 * m}=H4) 
+
+0Pz9'3 m})  m}=g4D=h4E B.)  m}hhh =F4 m}hv /. 02'0L3)
+ m}N3P })
+3` ) H%DY$3y$3D%Ei Ehi HLG.h	0 m}[` /  E51BQ5H@-Pv` /  9Q5BH@-Pv` \+-w5
+i7-x5
+j7) 
+k7-<5
+q7) 
+p7 J7L3                                                                                     " p"P"=G5B=H5C`,U5p` d/) R0)?-U5
+U5`-U50` K/) R0)-U5
+U5`-I5
+p7-J5
+q7.S5,T5` 4/ K/ /(0	.Q5,R5L5/ 1Bp*H1B(L5/-;5Ip8` D2 BH-q5BH :/ V7 -^5BH-_5Bh*h()P)S5T5 R0 1B
+\5mZ5
+^5H1B
+]5m[5
+_5` d/)LR0,K5-L5p7
+q7.V5,W5`)P),C*p7,D*q7.z5  LR0 E0(0,=3.<3P
+.<4P8`,=433) R0` E0.3,3)LR0-E*
+p7-F*
+q7`l7m7
+t7IP
+U5
+U5-y5I
+k7-w5
+i7-x5
+j7-b5
+r7-c5
+s7)
+h7,A*-B* 57-v7
+?5)
+k70`-u7 I p Ip L3-d5M`5P-e5Ma5pf /-e5M]5P-d5M\5-e5M_5P-d5M^5 ^/W`8-d5m\5
+i( /1BP-;5Ip8` 41L 1
+V5H1B
+W5 \/-d5
+`5-e5
+a5 /,f5`3 D2,3HB
+W5-q5B
+V5 / V7)@
+U5
+U5`.j5=5.k5>5.l5,m5?5@5hPHLi5Plh5P"   nj5Pnk5l5m5`nf5Pnd5Pne5`,C5.D5BCnC5PnD5`,A5P.B5pNB5NA5`L3 w/-C5B-D5C)
+3) 
+X5nX5 00Q" 3=F4p0"  hhh1B]F4P
+H@Ps.3` 02[0O,3PA,3Po  hhh1BF4H@Pu.38`-3i#*`u`) ,3PLw3-q5p!Np50">q5JPzpnn5Pno5-p5`) 
+q5) 
+3 w/-k3ml3p	Mo3)P
+-3P7)
+3
+l3i
+k3
+q5(
+
+("9v3q5p8) v3JPn= {/-p3
+p5P	Lw3-q5P`H w/,p5h ]2) 
+q5L{/"|~v4hPzHLp3Pr
+
+(p"=q5v3v3JPs`-=5
+f5
+j5->5
+d5
+k5) 
+e5 *-f5J0
+-e5mh5
+e5
+mi5jne5nd5nf5P[-?5
+l5mf5
+f5-@5
+m5md5
+d5) me5
+e5`)P")P)P)P)P)PLm?j)
+P-E58
+E5) H ~.(.3`  yFl    
+dTIA
+ k                                                                                    
